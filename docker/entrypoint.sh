@@ -40,7 +40,7 @@ fi
 # Start Redis in background early so migrations can use it
 # ---------------------------------------------------------------------------
 echo "[entrypoint] Starting Redis..."
-redis-server --daemonize yes --bind 127.0.0.1 --port 6379 --loglevel warning
+redis-server --daemonize yes --bind 127.0.0.1 --port 6380 --loglevel warning
 
 echo "[entrypoint] Waiting for Redis to be ready..."
 until redis-cli ping 2>/dev/null | grep -q PONG; do
