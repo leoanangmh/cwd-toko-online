@@ -29,12 +29,11 @@ RUN npm ci
 COPY . .
 COPY --from=vendor /app/vendor ./vendor
 
-RUN --mount=type=secret,id=build_env,dst=/run/secrets/build_env,required=false \
-    if [ -f /run/secrets/build_env ]; then \
-        echo "Loading VITE vars from build_env secret..."; \
-        export $(grep -E '^VITE_' /run/secrets/build_env | sed 's/"//g' | xargs); \
-    fi && \
-    echo "VITE_REVERB_HOST=${VITE_REVERB_HOST}" && \
+ARG VITE_APP_NAME="CodeWithDiki Toko Online"
+ARG VITE_REVERB_APP_KEY=laravel-herd
+ARG VITE_REVERB_HOST=localhost
+ARG VITE_REVERB_PORT=80
+ARG VITE_REVERB_SCHEME=http
 
 ENV VITE_APP_NAME=$VITE_APP_NAME \
     VITE_REVERB_APP_KEY=$VITE_REVERB_APP_KEY \
@@ -42,7 +41,15 @@ ENV VITE_APP_NAME=$VITE_APP_NAME \
     VITE_REVERB_PORT=$VITE_REVERB_PORT \
     VITE_REVERB_SCHEME=$VITE_REVERB_SCHEME
 
-RUN npm run build
+RUN --mount=type=secret,id=build_env,dst=/run/secrets/build_env,required=false \
+    if [ -f /run/secrets/build_env ]; then \
+        echo "Loading VITE vars from build_env secret..."; \
+        export $(grep -E '^VITE_' /run/secrets/build_env | sed 's/"//g' | xargs); \
+        echo "VITE_REVERB_HOST=${VITE_REVERB_HOST}"; \
+        echo "VITE_REVERB_PORT=${VITE_REVERB_PORT}"; \
+        echo "VITE_REVERB_SCHEME=${VITE_REVERB_SCHEME}"; \
+    fi && \
+    npm run build
 
 # =============================================================================
 # Stage 3: Runtime — PHP-FPM + Nginx + Reverb + Horizon via Supervisor
