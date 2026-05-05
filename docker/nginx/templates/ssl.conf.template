@@ -1,77 +1,35 @@
-# HTTP — only serves ACME challenge; everything else redirects to HTTPS
+# Redirect HTTP → HTTPS
 server {
-    listen 80;
+    listen 80 default_server;
     server_name ${NGINX_DOMAIN};
-
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-
-    location / {
-        return 301 https://$host$request_uri;
-    }
+    return 301 https://$host$request_uri;
 }
 
-# HTTPS
 server {
-    listen 443 ssl;
-    http2 on;
+    listen 443 ssl default_server;
     server_name ${NGINX_DOMAIN};
-
-    # Resolver for dynamic upstream lookup (deferred to request time, not startup).
-    resolver ${NGINX_RESOLVER} valid=30s ipv6=off;
 
     ssl_certificate     /etc/letsencrypt/live/${NGINX_DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${NGINX_DOMAIN}/privkey.pem;
-    ssl_trusted_certificate /etc/letsencrypt/live/${NGINX_DOMAIN}/chain.pem;
-
     ssl_protocols       TLSv1.2 TLSv1.3;
-    ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256;
-    ssl_prefer_server_ciphers off;
-    ssl_session_cache   shared:SSL:10m;
-    ssl_session_timeout 1d;
-    ssl_session_tickets off;
-
-    # HSTS (1 year) — only enable after confirming HTTPS works
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
 
     root /var/www/html/public;
     index index.php;
 
     client_max_body_size 100M;
-    fastcgi_read_timeout 120s;
 
-    # Health check — returns 200 immediately without hitting PHP-FPM.
-    # Use this as the liveness/readiness probe endpoint in Helipod / K8s.
-    location = /healthz {
-        access_log off;
-        return 200 "ok";
-        add_header Content-Type text/plain;
-    }
-
-    # Reverb WebSocket
-    location ~ ^/(app|apps)/ {
-        set $reverb_upstream "${NGINX_REVERB_HOST}:${NGINX_REVERB_PORT}";
-        proxy_pass http://$reverb_upstream;
+    # Laravel Reverb WebSocket proxy
+    location /app/ {
+        proxy_pass http://127.0.0.1:${NGINX_REVERB_PORT};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "Upgrade";
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 120s;
-        proxy_send_timeout 120s;
-    }
-
-    location ~* \.(css|js|woff2?|ttf|otf|eot|svg|ico|png|jpg|jpeg|gif|webp|avif)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-        try_files $uri /index.php?$query_string;
-    }
-
-    location /storage/ {
-        alias /var/www/html/storage/app/public/;
-        try_files $uri =404;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 3600;
     }
 
     location / {
@@ -79,12 +37,11 @@ server {
     }
 
     location ~ \.php$ {
-        set $fpm_upstream "${NGINX_APP_HOST}:9000";
-        fastcgi_pass $fpm_upstream;
+        fastcgi_pass unix:/run/php/php-fpm.sock;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         include fastcgi_params;
-        fastcgi_param PHP_VALUE "upload_max_filesize=100M \n post_max_size=100M";
+        fastcgi_read_timeout 300;
     }
 
     location ~ /\.(?!well-known).* {

@@ -54,9 +54,8 @@ if [ "${APP_ENV}" = "production" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Nginx config — render template based on SSL availability
-# Everything is on localhost in a unified container, so no DNS resolver needed
-# and upstreams are always 127.0.0.1
+# Nginx config — single container, everything on 127.0.0.1
+# PHP-FPM via Unix socket, Reverb via loopback TCP port
 # ---------------------------------------------------------------------------
 DOMAIN="${NGINX_DOMAIN:-localhost}"
 export NGINX_REVERB_PORT="${NGINX_REVERB_PORT:-8080}"
@@ -76,7 +75,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Hand off to Supervisor — manages nginx, php-fpm, reverb, horizon
+# Hand off to Supervisor
 # ---------------------------------------------------------------------------
 echo "[entrypoint] Starting supervisord..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf

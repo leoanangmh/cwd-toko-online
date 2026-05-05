@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # =============================================================================
-# Stage 1: Composer dependencies (no dev)
+# Stage 1: Composer dependencies
 # =============================================================================
 FROM composer:2 AS vendor
 
@@ -48,7 +48,6 @@ RUN npm run build
 # =============================================================================
 FROM php:8.4-fpm-bookworm AS runtime
 
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev \
     libjpeg62-turbo-dev \
@@ -70,7 +69,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gettext-base \
     && rm -rf /var/lib/apt/lists/*
 
-# PHP extensions
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install \
         pdo_sqlite \
@@ -84,43 +82,40 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
         opcache \
         exif
 
-# phpredis
 RUN pecl install redis \
     && docker-php-ext-enable redis
 
-# PHP config
 COPY docker/php/php.ini /usr/local/etc/php/conf.d/99-custom.ini
 COPY docker/php/www.conf /usr/local/etc/php-fpm.d/zz-docker-listen.conf
 
+# Create PHP-FPM socket directory
+RUN mkdir -p /run/php && chown www-data:www-data /run/php
+
 WORKDIR /var/www/html
 
-# Application files
 COPY --chown=www-data:www-data . .
-COPY --from=vendor  --chown=www-data:www-data /app/vendor       ./vendor
+COPY --from=vendor  --chown=www-data:www-data /app/vendor        ./vendor
 COPY --from=frontend --chown=www-data:www-data /app/public/build ./public/build
 
-# Bake a copy of the build assets so the entrypoint can always seed/refresh the volume
 RUN cp -a /var/www/html/public/build /var/www/html/public/build_init
 
-# Permissions
 RUN mkdir -p /var/www/html/bootstrap/cache \
     && chmod -R 775 /var/www/html/storage \
     && chmod -R 775 /var/www/html/bootstrap/cache \
     && chown -R www-data:www-data /var/www/html/bootstrap/cache
 
-# Nginx templates (entrypoint renders these into /etc/nginx/conf.d/default.conf)
+# Nginx templates
 COPY docker/nginx/templates /etc/nginx/templates
 
-# Remove ALL pre-baked nginx site configs so nothing conflicts with the
-# generated config that entrypoint.sh writes at startup
+# Remove all pre-baked nginx site configs
 RUN rm -f /etc/nginx/conf.d/default.conf \
           /etc/nginx/sites-enabled/default \
           /etc/nginx/sites-available/default
 
-# Supervisor — manages nginx, php-fpm, reverb, horizon as one process tree
+# Supervisor config
 COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Unified entrypoint: filesystem setup → migrations → nginx config → supervisord
+# Single unified entrypoint
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
