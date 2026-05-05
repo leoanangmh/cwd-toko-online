@@ -1,27 +1,18 @@
 secrets:
-  # auth.json must exist locally — generate with:
-  #   composer config bearer.dikiakbarasyidiq.dev <license_key>
-  # Format:
-  # {
-  #   "bearer": {
-  #     "dikiakbarasyidiq.dev": "<license_key>"
-  #   }
-  # }
-  # If auth.json doesn't exist, set COMPOSER_AUTH in .env instead.
-  # The stub file is used as a placeholder so Docker doesn't error on missing file.
   composer_auth:
     file: ${COMPOSER_AUTH_FILE:-./auth.json.stub}
 
 services:
-
   # ---------------------------------------------------------------------------
-  # Redis — sessions, cache, queues
+  # Redis
   # ---------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     volumes:
       - redis_data:/data
+    networks:
+      - backend
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -29,7 +20,7 @@ services:
       retries: 10
 
   # ---------------------------------------------------------------------------
-  # App — PHP-FPM (handles all HTTP via Nginx → FastCGI)
+  # App
   # ---------------------------------------------------------------------------
   app:
     build:
@@ -38,7 +29,6 @@ services:
       secrets:
         - composer_auth
       args:
-        # Diambil otomatis dari .env di project root
         COMPOSER_AUTH: ${COMPOSER_AUTH:-}
         VITE_APP_NAME: ${APP_NAME:-CodeWithDiki Toko Online}
         VITE_REVERB_APP_KEY: ${REVERB_APP_KEY:-laravel-herd}
@@ -55,6 +45,8 @@ services:
     volumes:
       - app_storage:/var/www/html/storage
       - public_build:/var/www/html/public/build
+    networks:
+      - backend
     healthcheck:
       test: ["CMD", "test", "-f", "/var/www/html/public/build/manifest.json"]
       interval: 3s
@@ -66,7 +58,7 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # Nginx — web server, static files, proxies PHP-FPM and Reverb WS
+  # Nginx (Bridge: Frontend ↔ Backend)
   # ---------------------------------------------------------------------------
   nginx:
     build:
@@ -86,12 +78,12 @@ services:
       NGINX_REVERB_PORT: "8080"
     volumes:
       - app_storage:/var/www/html/storage:ro
-      # Shared volume: populated by app container, read by nginx
       - public_build:/var/www/html/public/build:ro
-      # Let's Encrypt certificates (populated by certbot service)
       - certbot_certs:/etc/letsencrypt:ro
-      # Certbot webroot for ACME challenge
       - certbot_www:/var/www/certbot:ro
+    networks:
+      - frontend
+      - backend
     depends_on:
       app:
         condition: service_healthy
@@ -100,8 +92,7 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # Certbot — issue & renew Let's Encrypt certificates
-  # Only activated with: docker compose --profile ssl run --rm certbot ...
+  # Certbot
   # ---------------------------------------------------------------------------
   certbot:
     image: certbot/certbot:latest
@@ -109,16 +100,12 @@ services:
     volumes:
       - certbot_certs:/etc/letsencrypt
       - certbot_www:/var/www/certbot
-    # Default command shows help. Override when running:
-    #   Issue:  docker compose --profile ssl run --rm certbot certonly \
-    #             --webroot -w /var/www/certbot \
-    #             -d yourdomain.com \
-    #             --agree-tos --email admin@yourdomain.com
-    #   Renew:  docker compose --profile ssl run --rm certbot renew
+    networks:
+      - frontend
     command: ["--help"]
 
   # ---------------------------------------------------------------------------
-  # Horizon — processes queued jobs (Redis)
+  # Horizon
   # ---------------------------------------------------------------------------
   horizon:
     build:
@@ -135,6 +122,8 @@ services:
     volumes:
       - app_storage:/var/www/html/storage
       - public_build:/var/www/html/public/build
+    networks:
+      - backend
     depends_on:
       redis:
         condition: service_healthy
@@ -143,7 +132,7 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # Reverb — Laravel WebSocket server
+  # Reverb
   # ---------------------------------------------------------------------------
   reverb:
     build:
@@ -157,7 +146,6 @@ services:
     environment:
       CONTAINER_ROLE: reverb
       REDIS_HOST: redis
-      # Bind to all interfaces inside the container
       REVERB_SERVER_HOST: "0.0.0.0"
       REVERB_SERVER_PORT: "8080"
       REVERB_HOST: ${APP_DOMAIN:-localhost}
@@ -166,15 +154,15 @@ services:
     volumes:
       - app_storage:/var/www/html/storage
       - public_build:/var/www/html/public/build
+    networks:
+      - backend
     depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # MySQL — only started when DB_CONNECTION=mysql (profile: mysql)
-  # To use: add --profile mysql to docker compose commands, e.g:
-  #   docker compose --profile mysql up -d
+  # MySQL
   # ---------------------------------------------------------------------------
   mysql:
     image: mysql:8.4
@@ -187,11 +175,19 @@ services:
       MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
     volumes:
       - mysql_data:/var/lib/mysql
+    networks:
+      - backend
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-secret}"]
       interval: 5s
       timeout: 5s
       retries: 20
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
 
 volumes:
   redis_data:
