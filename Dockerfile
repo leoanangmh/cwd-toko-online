@@ -106,9 +106,12 @@ COPY --from=frontend --chown=www-data:www-data /app/public/build ./public/build
 RUN cp -a /var/www/html/public/build /var/www/html/public/build_init
 
 RUN mkdir -p /var/www/html/bootstrap/cache \
+    && mkdir -p /var/www/html/database \
     && chmod -R 775 /var/www/html/storage \
     && chmod -R 775 /var/www/html/bootstrap/cache \
-    && chown -R www-data:www-data /var/www/html/bootstrap/cache
+    && chmod -R 775 /var/www/html/database \
+    && chown -R www-data:www-data /var/www/html/bootstrap/cache \
+    && chown -R www-data:www-data /var/www/html/database
 
 # Nginx templates
 COPY docker/nginx/templates /etc/nginx/templates

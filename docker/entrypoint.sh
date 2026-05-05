@@ -55,6 +55,16 @@ echo "[entrypoint] Redis is ready."
 echo "[entrypoint] Running migrations..."
 php artisan migrate --force
 
+echo "[entrypoint] Seeding roles (if not already seeded)..."
+php artisan tinker --execute="
+    if (!\Spatie\Permission\Models\Role::exists()) {
+        \Artisan::call('db:seed', ['--class' => 'RoleSeeder', '--force' => true]);
+        echo 'Roles seeded.';
+    } else {
+        echo 'Roles already exist, skipping.';
+    }
+"
+
 echo "[entrypoint] Linking storage..."
 php artisan storage:link --force
 
