@@ -12,7 +12,7 @@ mkdir -p \
     /var/www/html/storage/logs \
     /var/www/html/bootstrap/cache
 
-# Always sync build assets from baked-in copy
+# Seed or refresh public/build from the baked-in copy
 cp -a /var/www/html/public/build_init/. /var/www/html/public/build/
 
 chown -R www-data:www-data \
@@ -48,28 +48,22 @@ if [ "${APP_ENV}" = "production" ]; then
     php artisan event:cache
 fi
 
-# ── Nginx config (absorbed from nginx/entrypoint.sh) ──────────────────────────
+# Process Nginx template based on SSL presence
 DOMAIN="${NGINX_DOMAIN:-localhost}"
-# In a unified container, app and reverb are on localhost — not separate hostnames
 export NGINX_APP_HOST="${NGINX_APP_HOST:-127.0.0.1}"
 export NGINX_REVERB_HOST="${NGINX_REVERB_HOST:-127.0.0.1}"
 export NGINX_REVERB_PORT="${NGINX_REVERB_PORT:-8080}"
 export NGINX_RESOLVER="${NGINX_RESOLVER:-$(grep '^nameserver' /etc/resolv.conf | head -1 | awk '{print $2}')}"
 
-echo "[entrypoint] Resolver: ${NGINX_RESOLVER}, App: ${NGINX_APP_HOST}, Reverb: ${NGINX_REVERB_HOST}:${NGINX_REVERB_PORT}"
-
 if [ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]; then
-    echo "[entrypoint] SSL found — enabling HTTPS mode."
     envsubst '${NGINX_DOMAIN} ${NGINX_APP_HOST} ${NGINX_REVERB_HOST} ${NGINX_REVERB_PORT} ${NGINX_RESOLVER}' \
         < /etc/nginx/templates/ssl.conf.template \
         > /etc/nginx/conf.d/default.conf
 else
-    echo "[entrypoint] No SSL — starting in HTTP mode."
     envsubst '${NGINX_APP_HOST} ${NGINX_REVERB_HOST} ${NGINX_REVERB_PORT} ${NGINX_RESOLVER}' \
         < /etc/nginx/templates/http.conf \
         > /etc/nginx/conf.d/default.conf
 fi
 
-# ── Hand off to Supervisor ─────────────────────────────────────────────────────
 echo "[entrypoint] Starting supervisord..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
