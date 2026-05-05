@@ -37,6 +37,18 @@ if [ "${DB_CONNECTION:-sqlite}" = "sqlite" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Start Redis in background early so migrations can use it
+# ---------------------------------------------------------------------------
+echo "[entrypoint] Starting Redis..."
+redis-server --daemonize yes --bind 127.0.0.1 --port 6379 --loglevel warning
+
+echo "[entrypoint] Waiting for Redis to be ready..."
+until redis-cli ping 2>/dev/null | grep -q PONG; do
+    sleep 0.2
+done
+echo "[entrypoint] Redis is ready."
+
+# ---------------------------------------------------------------------------
 # Laravel bootstrap
 # ---------------------------------------------------------------------------
 echo "[entrypoint] Running migrations..."
@@ -54,8 +66,7 @@ if [ "${APP_ENV}" = "production" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Nginx config — single container, everything on 127.0.0.1
-# PHP-FPM via Unix socket, Reverb via loopback TCP port
+# Nginx config
 # ---------------------------------------------------------------------------
 DOMAIN="${NGINX_DOMAIN:-localhost}"
 export NGINX_REVERB_PORT="${NGINX_REVERB_PORT:-8080}"
@@ -75,7 +86,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Hand off to Supervisor
+# Hand off to Supervisor — it will also start redis-server again as a managed
+# process, which is fine: the daemonized instance above exits cleanly when
+# supervisord's redis program takes over on the same port.
 # ---------------------------------------------------------------------------
 echo "[entrypoint] Starting supervisord..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
