@@ -37,12 +37,13 @@ if [ "${DB_CONNECTION:-sqlite}" = "sqlite" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Start Redis in background early so migrations can use it
+# Start Redis temporarily in background for migrations
 # ---------------------------------------------------------------------------
-echo "[entrypoint] Starting Redis..."
-redis-server --daemonize yes --bind 127.0.0.1 --port 6380 --loglevel warning
+echo "[entrypoint] Starting Redis for migrations..."
+redis-server --bind 127.0.0.1 --port 6379 --loglevel warning &
+REDIS_PID=$!
 
-echo "[entrypoint] Waiting for Redis to be ready..."
+echo "[entrypoint] Waiting for Redis..."
 until redis-cli ping 2>/dev/null | grep -q PONG; do
     sleep 0.2
 done
@@ -64,6 +65,12 @@ if [ "${APP_ENV}" = "production" ]; then
     php artisan view:cache
     php artisan event:cache
 fi
+
+# Stop the temporary Redis — Supervisor will start the managed one
+echo "[entrypoint] Stopping temporary Redis (PID $REDIS_PID)..."
+kill $REDIS_PID
+wait $REDIS_PID 2>/dev/null || true
+echo "[entrypoint] Temporary Redis stopped."
 
 # ---------------------------------------------------------------------------
 # Nginx config
