@@ -78,7 +78,10 @@ COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 # ── Entrypoint ─────────────────────────────────────────────────────────────────
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-
+# Remove ALL default nginx configs — entrypoint generates the only one we need
+RUN rm -f /etc/nginx/conf.d/default.conf \
+          /etc/nginx/sites-enabled/default \
+          /etc/nginx/sites-available/default
 EXPOSE 80
 
 ENTRYPOINT ["/entrypoint.sh"]
