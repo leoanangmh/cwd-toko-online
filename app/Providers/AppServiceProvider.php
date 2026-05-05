@@ -26,6 +26,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        if (app()->isProduction()) {
+            \Illuminate\Support\Facades\URL::forceScheme('https');
+        }
+
         $this->configureDefaults();
         View::composer('*', function ($view) {
             $view->with('siteSettings', Cache::remember("site_settings", now()->addMinutes(60), function () {
