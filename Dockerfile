@@ -1,10 +1,14 @@
 # syntax=docker/dockerfile:1
+
 # =============================================================================
-# Stage 1: Composer dependencies
+# Stage 1: Composer dependencies (no dev)
 # =============================================================================
 FROM composer:2 AS vendor
+
 WORKDIR /app
+
 COPY composer.json composer.lock ./
+
 ARG COMPOSER_AUTH=""
 COPY docker/composer-install.sh /composer-install.sh
 RUN chmod +x /composer-install.sh
@@ -13,12 +17,15 @@ RUN --mount=type=secret,id=composer_auth,dst=/run/secrets/composer_auth,required
     /composer-install.sh
 
 # =============================================================================
-# Stage 2: Vite frontend
+# Stage 2: Vite frontend assets
 # =============================================================================
 FROM node:22-alpine AS frontend
+
 WORKDIR /app
+
 COPY package*.json ./
 RUN npm ci
+
 COPY . .
 COPY --from=vendor /app/vendor ./vendor
 
@@ -41,47 +48,82 @@ RUN npm run build
 # =============================================================================
 FROM php:8.4-fpm-bookworm AS runtime
 
+# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpng-dev libjpeg62-turbo-dev libfreetype6-dev libzip-dev \
-    libicu-dev libonig-dev libsqlite3-dev libssl-dev \
-    jpegoptim optipng pngquant gifsicle webp unzip curl \
-    nginx supervisor gettext-base \
+    libpng-dev \
+    libjpeg62-turbo-dev \
+    libfreetype6-dev \
+    libzip-dev \
+    libicu-dev \
+    libonig-dev \
+    libsqlite3-dev \
+    libssl-dev \
+    jpegoptim \
+    optipng \
+    pngquant \
+    gifsicle \
+    webp \
+    unzip \
+    curl \
+    nginx \
+    supervisor \
+    gettext-base \
     && rm -rf /var/lib/apt/lists/*
 
+# PHP extensions
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install \
-        pdo_sqlite pdo_mysql gd zip bcmath intl mbstring pcntl opcache exif
+        pdo_sqlite \
+        pdo_mysql \
+        gd \
+        zip \
+        bcmath \
+        intl \
+        mbstring \
+        pcntl \
+        opcache \
+        exif
 
-RUN pecl install redis && docker-php-ext-enable redis
+# phpredis
+RUN pecl install redis \
+    && docker-php-ext-enable redis
 
+# PHP config
 COPY docker/php/php.ini /usr/local/etc/php/conf.d/99-custom.ini
 COPY docker/php/www.conf /usr/local/etc/php-fpm.d/zz-docker-listen.conf
 
 WORKDIR /var/www/html
 
+# Application files
 COPY --chown=www-data:www-data . .
-COPY --from=vendor  --chown=www-data:www-data /app/vendor        ./vendor
-COPY --from=frontend --chown=www-data:www-data /app/public/build  ./public/build
+COPY --from=vendor  --chown=www-data:www-data /app/vendor       ./vendor
+COPY --from=frontend --chown=www-data:www-data /app/public/build ./public/build
 
+# Bake a copy of the build assets so the entrypoint can always seed/refresh the volume
 RUN cp -a /var/www/html/public/build /var/www/html/public/build_init
 
+# Permissions
 RUN mkdir -p /var/www/html/bootstrap/cache \
     && chmod -R 775 /var/www/html/storage \
     && chmod -R 775 /var/www/html/bootstrap/cache \
     && chown -R www-data:www-data /var/www/html/bootstrap/cache
 
+# Nginx templates (entrypoint renders these into /etc/nginx/conf.d/default.conf)
 COPY docker/nginx/templates /etc/nginx/templates
 
-# ── Supervisor config ──────────────────────────────────────────────────────────
-COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-
-# ── Entrypoint ─────────────────────────────────────────────────────────────────
-COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-# Remove ALL default nginx configs — entrypoint generates the only one we need
+# Remove ALL pre-baked nginx site configs so nothing conflicts with the
+# generated config that entrypoint.sh writes at startup
 RUN rm -f /etc/nginx/conf.d/default.conf \
           /etc/nginx/sites-enabled/default \
           /etc/nginx/sites-available/default
+
+# Supervisor — manages nginx, php-fpm, reverb, horizon as one process tree
+COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Unified entrypoint: filesystem setup → migrations → nginx config → supervisord
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 80
 
 ENTRYPOINT ["/entrypoint.sh"]
