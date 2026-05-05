@@ -89,9 +89,6 @@ RUN pecl install redis \
 COPY docker/php/php.ini /usr/local/etc/php/conf.d/99-custom.ini
 COPY docker/php/www.conf /usr/local/etc/php-fpm.d/zz-docker-listen.conf
 
-# Create PHP-FPM socket directory
-RUN mkdir -p /run/php && chown www-data:www-data /run/php
-
 WORKDIR /var/www/html
 
 COPY --chown=www-data:www-data . .
