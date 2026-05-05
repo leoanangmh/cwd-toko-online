@@ -122,7 +122,6 @@ RUN chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["php-fpm"]
-EXPOSE 9000
 
 # =============================================================================
 # Stage 4: Nginx — serves static files + proxies PHP & Reverb WebSocket
@@ -144,4 +143,4 @@ COPY --from=runtime /var/www/html/public /var/www/html/public
 RUN rm -rf /var/www/html/public/build /var/www/html/public/build_init
 
 ENTRYPOINT ["/docker-entrypoint-nginx.sh"]
-EXPOSE 80 443
+EXPOSE 80
